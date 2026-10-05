@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Internship Board</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<a class="skip" href="#list">Skip to listings</a>
+<header><h1>Internship Board</h1><p>Find a role. Apply in a minute.</p></header>
+<main>
+<form id="filters" role="search" aria-label="Filter internships">
+  <div><label for="q">Search title or skill</label><input id="q" type="search" autocomplete="off"></div>
+  <div><label for="domain">Domain</label><select id="domain"><option value="">All domains</option></select></div>
+  <div><label for="mode">Work mode</label><select id="mode"><option value="">All modes</option></select></div>
+</form>
+<p id="count" role="status" aria-live="polite"></p>
+<section id="list" aria-label="Internship listings" tabindex="-1"></section>
+</main>
+
+<dialog id="detail" aria-labelledby="d-title">
+  <h2 id="d-title"></h2><p id="d-meta"></p><ul id="d-skills"></ul>
+  <form id="apply" novalidate>
+    <h3>Apply</h3>
+    <label for="a-name">Full name</label><input id="a-name" name="name" autocomplete="name">
+    <p class="err" id="e-name" role="alert"></p>
+    <label for="a-email">Email</label><input id="a-email" name="email" type="email" autocomplete="email">
+    <p class="err" id="e-email" role="alert"></p>
+    <label for="a-url">Portfolio URL (https)</label><input id="a-url" name="url" type="url" autocomplete="url">
+    <p class="err" id="e-url" role="alert"></p>
+    <p id="a-msg" role="status"></p>
+    <div class="row"><button type="submit">Send application</button><button type="button" id="close">Close</button></div>
+  </form>
+</dialog>
+<script src="app.js"></script>
+</body>
+</html>
