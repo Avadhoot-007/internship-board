@@ -1,5 +1,5 @@
 const $ = id => document.getElementById(id);
-const DATA_URL = 'data/internships.json';
+const DATA_URL = './internships.json';
 const KEY = 'applications';
 let items = [], current = null, opener = null;
 
