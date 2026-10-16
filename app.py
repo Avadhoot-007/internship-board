@@ -1,5 +1,7 @@
-"""Internship Board API: Flask + SQLite, server-side validation, rate limits, secure headers."""
+"""Internship Board: Flask + SQLite API, server-side validation, rate limits,
+secure headers, structured request logging, and a health check."""
 import json
+import logging
 import os
 import sqlite3
 from pathlib import Path
@@ -11,10 +13,16 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 
 from validation import ValidationError, validate_application, validate_filters
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+)
+log = logging.getLogger("internship_board")
+
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
 DATA_FILE = BASE_DIR / "data" / "internships.json"
-DEFAULT_DB = BASE_DIR / "applications.db"
+DEFAULT_DB = BASE_DIR / "data" / "applications.db"
 
 SECURITY_HEADERS = {
     "Content-Security-Policy": (
@@ -37,7 +45,6 @@ ERROR_MESSAGES = {
     405: "Method not allowed.",
     413: "Request body too large.",
     415: "Content-Type must be application/json.",
-    429: "Too many requests. Try again shortly.",
 }
 
 SCHEMA = """
@@ -80,6 +87,7 @@ def _connect(path):
 
 
 def init_db(path):
+    Path(path).parent.mkdir(parents=True, exist_ok=True)  # PythonAnywhere: data/ may be missing
     conn = _connect(path)
     try:
         conn.executescript(SCHEMA)
@@ -99,6 +107,7 @@ def init_db(path):
         conn.commit()
     finally:
         conn.close()
+    log.info("database ready path=%s", path)
 
 
 def _like_escape(value):
@@ -160,20 +169,42 @@ def create_app(db_path=None, rate_limits_enabled=True):
             resp.headers["Cache-Control"] = "no-store"
         return resp
 
+    @app.after_request
+    def log_request(resp):
+        # Method, path, status only. Never query strings or bodies (may hold PII).
+        log.info("%s %s %s", request.method, request.path, resp.status_code)
+        return resp
+
     @app.errorhandler(ValidationError)
     def handle_validation(exc):
+        log.info("validation failed fields=%s", ",".join(sorted(exc.errors)))
         return _error(400, "Validation failed.", errors=exc.errors)
 
     for code, message in ERROR_MESSAGES.items():
         app.register_error_handler(code, lambda e, m=message, c=code: _error(c, m))
 
+    @app.errorhandler(429)
+    def handle_rate_limited(_exc):
+        log.warning("rate limited ip=%s path=%s", get_remote_address(), request.path)
+        return _error(429, "Too many requests. Try again shortly.")
+
     @app.errorhandler(500)
-    def handle_server_error(_exc):
+    def handle_server_error(exc):
+        log.exception("unhandled error", exc_info=exc.original_exception or exc)
         return _error(500, "Server error. Try again later.")
 
     @app.get("/")
     def index():
         return send_from_directory(STATIC_DIR, "index.html")
+
+    @app.get("/api/health")
+    def health():
+        try:
+            get_db().execute("SELECT 1").fetchone()
+        except sqlite3.Error:
+            log.exception("health check failed")
+            return _error(503, "Database unavailable.")
+        return jsonify({"status": "ok"})
 
     @app.get("/api/internships")
     @limiter.limit("60 per minute")
@@ -213,6 +244,7 @@ def create_app(db_path=None, rate_limits_enabled=True):
             "SELECT 1 FROM internships WHERE id = ?", (data["internship_id"],)
         ).fetchone()
         if exists is None:
+            log.info("application rejected: unknown internship")
             return _error(404, "Unknown internship.")
 
         try:
@@ -223,7 +255,10 @@ def create_app(db_path=None, rate_limits_enabled=True):
             )
             db.commit()
         except sqlite3.IntegrityError:
+            log.info("duplicate application internship=%s", data["internship_id"])
             return _error(409, "You already applied to this role with that email.")
+
+        log.info("application received internship=%s", data["internship_id"])
         return jsonify({"status": "received"}), 201
 
     return app
