@@ -3,7 +3,7 @@ or point the WSGI file at this module. Change USERNAME to your PythonAnywhere us
 import os
 import sys
 
-PROJECT_HOME = "/home/USERNAME/internship-board"
+PROJECT_HOME = "/home/Avadhoot007/internship-board"
 if PROJECT_HOME not in sys.path:
     sys.path.insert(0, PROJECT_HOME)
 
