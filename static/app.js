@@ -1,170 +1,256 @@
-const $ = id => document.getElementById(id);
-const API = { list: '/api/internships', apply: '/api/applications' };
+const $ = (id) => document.getElementById(id);
+const API_LIST = "api/internships";
+const API_APPLY = "api/applications";
 const TIMEOUT_MS = 10000;
-let items = [], current = null, opener = null, sending = false;
+let items = [],
+  current = null,
+  opener = null,
+  sending = false;
 
-function esc(s){ const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+function esc(s) {
+  return String(s).replace(
+    /[&<>"']/g,
+    (c) =>
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[
+        c
+      ],
+  );
+}
 
-// Wraps fetch with a timeout. Returns { ok, status, body }. Throws on network failure or timeout.
-async function requestJSON(url, opts = {}){
+// Returns { ok, status, body }. Throws on network error or timeout.
+async function request(url, options = {}) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
   try {
     const res = await fetch(url, {
-      ...opts,
+      ...options,
+      credentials: "omit",
       signal: ctrl.signal,
-      headers: { Accept: 'application/json', ...(opts.headers || {}) },
-      credentials: 'omit',
     });
-    const body = await res.json().catch(() => ({}));
+    let body = null;
+    try {
+      body = await res.json();
+    } catch {
+      body = null;
+    }
     return { ok: res.ok, status: res.status, body };
   } finally {
     clearTimeout(timer);
   }
 }
 
-async function load(){
-  $('list').innerHTML = '<p class="state" role="status">Loading internships…</p>';
-  $('count').textContent = '';
+async function load() {
+  $("list").innerHTML =
+    '<p class="state" role="status">Loading internships…</p>';
+  $("count").textContent = "";
   try {
     // add ?fail=1 to the page URL to test the error state
-    if (new URLSearchParams(location.search).has('fail')) throw new Error('Simulated failure');
-    const r = await requestJSON(API.list);
-    if (!r.ok || !Array.isArray(r.body.internships)) throw new Error('HTTP ' + r.status);
-    items = r.body.internships;
-    fillOptions('domain', [...new Set(items.map(i => i.domain))]);
-    fillOptions('mode', [...new Set(items.map(i => i.mode))]);
+    if (new URLSearchParams(location.search).has("fail"))
+      throw new Error("Simulated failure");
+    const res = await request(API_LIST);
+    if (!res.ok || !res.body || !Array.isArray(res.body.internships))
+      throw new Error("HTTP " + res.status);
+    items = res.body.internships;
+    fillOptions("domain", [...new Set(items.map((i) => i.domain))]);
+    fillOptions("mode", [...new Set(items.map((i) => i.mode))]);
     render();
   } catch (e) {
-    $('list').innerHTML = '<div class="state error" role="alert"><p>Could not load internships. Check your connection and try again.</p><button type="button" id="retry">Retry</button></div>';
-    $('retry').addEventListener('click', load);
-    $('retry').focus();
+    showLoadError();
   }
 }
 
-function fillOptions(id, values){
+function showLoadError() {
+  $("list").innerHTML =
+    '<div class="state error" role="alert"><p>Could not load internships. Check your connection and try again.</p><button type="button" id="retry">Retry</button></div>';
+  $("retry").addEventListener("click", load);
+  $("retry").focus();
+}
+
+function fillOptions(id, values) {
   const sel = $(id);
   sel.length = 1;
-  values.forEach(v => sel.add(new Option(v, v)));
+  values.forEach((v) => sel.add(new Option(v, v)));
 }
 
-function render(){
-  const q = $('q').value.trim().toLowerCase(), d = $('domain').value, m = $('mode').value;
-  const hits = items.filter(i =>
-    (!d || i.domain === d) && (!m || i.mode === m) &&
-    (!q || (i.title + ' ' + i.skills.join(' ')).toLowerCase().includes(q)));
-  $('count').textContent = hits.length + (hits.length === 1 ? ' internship found' : ' internships found');
-  if (!hits.length){
-    $('list').innerHTML = '<div class="state"><p>No internships match. Clear a filter or try another skill.</p><button type="button" id="clear">Clear filters</button></div>';
-    $('clear').addEventListener('click', () => { $('q').value = ''; $('domain').value = ''; $('mode').value = ''; render(); $('q').focus(); });
+function render() {
+  const q = $("q").value.trim().toLowerCase(),
+    d = $("domain").value,
+    m = $("mode").value;
+  const hits = items.filter(
+    (i) =>
+      (!d || i.domain === d) &&
+      (!m || i.mode === m) &&
+      (!q || (i.title + " " + i.skills.join(" ")).toLowerCase().includes(q)),
+  );
+  $("count").textContent =
+    hits.length +
+    (hits.length === 1 ? " internship found" : " internships found");
+  if (!hits.length) {
+    $("list").innerHTML =
+      '<div class="state"><p>No internships match. Clear a filter or try another skill.</p><button type="button" id="clear">Clear filters</button></div>';
+    $("clear").addEventListener("click", () => {
+      $("q").value = "";
+      $("domain").value = "";
+      $("mode").value = "";
+      render();
+      $("q").focus();
+    });
     return;
   }
-  $('list').innerHTML = hits.map(i => `
-    <button type="button" class="card" data-id="${esc(i.id)}">
-      <h2>${esc(i.title)}</h2>
-      <p class="meta">${esc(i.domain)} · ${esc(i.mode)} · ${esc(i.location)}</p>
-      <p class="meta">${i.openings} ${i.openings === 1 ? 'opening' : 'openings'}</p>
-      <ul class="chips">${i.skills.map(s => `<li>${esc(s)}</li>`).join('')}</ul>
-    </button>`).join('');
+  // Button holds only phrasing content; the heading wraps the button.
+  $("list").innerHTML = hits
+    .map(
+      (i) => `
+    <h2 class="card-h">
+      <button type="button" class="card" data-id="${esc(i.id)}">
+        <span class="card-title">${esc(i.title)}</span>
+        <span class="meta">${esc(i.domain)} · ${esc(i.mode)} · ${esc(i.location)}</span>
+        <span class="meta">${i.openings} ${i.openings === 1 ? "opening" : "openings"}</span>
+        <span class="chips">${i.skills.map((s) => `<span>${esc(s)}</span>`).join("")}</span>
+      </button>
+    </h2>`,
+    )
+    .join("");
 }
 
-$('filters').addEventListener('submit', e => e.preventDefault());
-['q','domain','mode'].forEach(id => $(id).addEventListener('input', render));
+$("filters").addEventListener("submit", (e) => e.preventDefault());
+["q", "domain", "mode"].forEach((id) =>
+  $(id).addEventListener("input", render),
+);
 
-$('list').addEventListener('click', e => {
-  const card = e.target.closest('.card');
+$("list").addEventListener("click", (e) => {
+  const card = e.target.closest(".card");
   if (!card) return;
   opener = card;
-  current = items.find(i => i.id === card.dataset.id);
-  $('d-title').textContent = current.title;
-  $('d-meta').textContent = `${current.domain} · ${current.mode} · ${current.location} · ${current.openings} open`;
-  $('d-skills').className = 'chips';
-  $('d-skills').innerHTML = current.skills.map(s => `<li>${esc(s)}</li>`).join('');
-  $('apply').reset(); clearErrors(); $('a-msg').textContent = '';
-  $('detail').showModal();
+  current = items.find((i) => i.id === card.dataset.id);
+  if (!current) return;
+  $("d-title").textContent = current.title;
+  $("d-meta").textContent =
+    `${current.domain} · ${current.mode} · ${current.location} · ${current.openings} open`;
+  $("d-skills").className = "chips";
+  $("d-skills").innerHTML = current.skills
+    .map((s) => `<li>${esc(s)}</li>`)
+    .join("");
+  $("apply").reset();
+  clearErrors();
+  $("a-msg").textContent = "";
+  $("detail").showModal();
 });
-$('close').addEventListener('click', () => $('detail').close());
-$('detail').addEventListener('close', () => opener && opener.focus());
+$("close").addEventListener("click", () => $("detail").close());
+$("detail").addEventListener("close", () => opener && opener.focus());
 
-// Client-side checks are for fast feedback only. The server re-validates everything.
-const field = { name: 'e-name', email: 'e-email', url: 'e-url' };
-function clearErrors(){
-  Object.values(field).forEach(id => $(id).textContent = '');
-  ['a-name','a-email','a-url'].forEach(id => $(id).removeAttribute('aria-invalid'));
+const field = { name: "e-name", email: "e-email", url: "e-url" };
+const inputFor = { name: "a-name", email: "a-email", url: "a-url" };
+
+function clearErrors() {
+  Object.values(field).forEach((id) => ($(id).textContent = ""));
+  Object.values(inputFor).forEach((id) =>
+    $(id).removeAttribute("aria-invalid"),
+  );
 }
 
-function validate(v){
+function showFieldErrors(err) {
+  const keys = Object.keys(err);
+  keys.forEach((k) => {
+    $(field[k]).textContent = err[k];
+    $(inputFor[k]).setAttribute("aria-invalid", "true");
+  });
+  $(inputFor[keys[0]]).focus();
+}
+
+// Client checks are UX only. The server validates again.
+function validate(v) {
   const err = {};
-  if (v.name.length < 2 || v.name.length > 100 || ![...v.name].every(c => /[\p{L}\p{M} .'\-]/u.test(c)))
-    err.name = 'Use 2 to 100 letters, spaces, dots, apostrophes or hyphens.';
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v.email)) err.email = 'Enter a valid email, like name@example.com.';
-  if (v.url){
-    try { if (new URL(v.url).protocol !== 'https:') throw 0; } catch { err.url = 'Enter a full https:// link, or leave this empty.'; }
+  const name = v.name.trim();
+  if (name.length < 2 || name.length > 100)
+    err.name = "Enter your full name, 2 to 100 characters.";
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v.email.trim()))
+    err.email = "Enter a valid email, like name@example.com.";
+  if (v.url.trim()) {
+    try {
+      if (new URL(v.url.trim()).protocol !== "https:") throw 0;
+    } catch {
+      err.url = "Enter a full https:// link, or leave this empty.";
+    }
   }
   return err;
 }
 
-function showFieldErrors(errs){
-  let first = null;
-  Object.entries(errs).forEach(([k, msg]) => {
-    if (field[k]){
-      $(field[k]).textContent = msg;
-      const input = $('a-' + k);
-      input.setAttribute('aria-invalid', 'true');
-      first = first || input;
-    } else {
-      $('a-msg').textContent = msg;
+function setSending(on) {
+  const btn = $("apply").querySelector('button[type="submit"]');
+  btn.disabled = on;
+  btn.textContent = on ? "Sending…" : "Send application";
+}
+
+// Map server responses to form messages.
+function showServerError(res) {
+  const b = res.body || {};
+  if (res.status === 400 && b.errors) {
+    const fieldErr = {};
+    let msg = "";
+    for (const [key, text] of Object.entries(b.errors)) {
+      if (field[key]) fieldErr[key] = text;
+      else msg = text;
     }
-  });
-  if (first) first.focus();
+    if (Object.keys(fieldErr).length) showFieldErrors(fieldErr);
+    $("a-msg").textContent =
+      msg ||
+      (Object.keys(fieldErr).length ? "" : "Check your details and try again.");
+    return;
+  }
+  const messages = {
+    404: "This role is no longer available.",
+    409: b.error || "You already applied to this role with that email.",
+    413: "Your request was too large. Shorten your entries.",
+    429: "Too many attempts. Wait a minute and try again.",
+  };
+  if (res.status >= 500)
+    $("a-msg").textContent = "Server error. Try again later.";
+  else
+    $("a-msg").textContent =
+      messages[res.status] || b.error || "Could not send. Try again.";
 }
 
-function setSending(on){
-  sending = on;
-  $('submit').disabled = on;
-  $('submit').textContent = on ? 'Sending…' : 'Send application';
-  $('apply').setAttribute('aria-busy', String(on));
-}
-
-$('apply').addEventListener('submit', async e => {
+$("apply").addEventListener("submit", async (e) => {
   e.preventDefault();
   if (sending) return;
   clearErrors();
-  $('a-msg').textContent = '';
-
+  $("a-msg").textContent = "";
   const v = {
-    internship_id: current.id,
-    name: $('a-name').value.trim(),
-    email: $('a-email').value.trim(),
-    url: $('a-url').value.trim(),
+    name: $("a-name").value,
+    email: $("a-email").value,
+    url: $("a-url").value,
   };
-  const clientErrs = validate(v);
-  if (Object.keys(clientErrs).length) return showFieldErrors(clientErrs);
+  const err = validate(v);
+  if (Object.keys(err).length) {
+    showFieldErrors(err);
+    return;
+  }
 
+  sending = true;
   setSending(true);
   try {
-    const r = await requestJSON(API.apply, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(v),
+    const res = await request(API_APPLY, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        internship_id: current.id,
+        name: v.name.trim(),
+        email: v.email.trim(),
+        url: v.url.trim(),
+      }),
     });
-    if (r.status === 201){
-      $('a-msg').textContent = 'Application sent for ' + current.title + '.';
-      $('apply').reset();
-    } else if (r.status === 400 && r.body.errors){
-      showFieldErrors(r.body.errors);
-    } else if (r.status === 409){
-      $('a-msg').textContent = r.body.error;
-    } else if (r.status === 429){
-      $('a-msg').textContent = 'Too many attempts. Wait a minute, then retry.';
-    } else if (r.status === 404){
-      $('a-msg').textContent = 'This internship is no longer listed.';
+    if (res.status === 201) {
+      $("a-msg").textContent = "Application sent for " + current.title + ".";
+      $("apply").reset();
     } else {
-      $('a-msg').textContent = 'Could not send. Try again.';
+      showServerError(res);
     }
   } catch {
-    $('a-msg').textContent = 'Network problem. Check your connection and retry.';
+    $("a-msg").textContent =
+      "Network problem. Check your connection and try again.";
   } finally {
+    sending = false;
     setSending(false);
   }
 });
